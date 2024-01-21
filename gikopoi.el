@@ -482,12 +482,12 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
   (interactive) (gikopoi-send ""))
 
 
-(defun gikopoi-list-rooms ()
-  (interactive)
-  (unless (buffer-live-p gikopoi-room-list-buffer)
-    (gikopoi-init-room-list-buffer))
-  (gikopoi-update-room-list-buffer)
-  (display-buffer gikopoi-room-list-buffer))
+;; (defun gikopoi-list-rooms ()
+;;   (interactive)
+;;   (unless (buffer-live-p gikopoi-room-list-buffer)
+;;     (gikopoi-init-room-list-buffer))
+;;   (gikopoi-update-room-list-buffer)
+;;   (display-buffer gikopoi-room-list-buffer))
 
 
 (defun gikopoi-move-left (times)

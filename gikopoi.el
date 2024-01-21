@@ -409,21 +409,21 @@ This will be changed later to use the local name.")
     (assoc-delete-all id gikopoi-user-alist)))
 
 
-(defvar gikopoi-user-list-buffer nil)
+;; (defvar gikopoi-user-list-buffer nil)
 
-(defun gikopoi-init-user-list-buffer ()
-  (setq gikopoi-user-list-buffer (generate-new-buffer "*User List*"))
-  (with-current-buffer gikopoi-user-list-buffer
-    (setq buffer-read-only t)
-    (use-local-map (make-sparse-keymap))
-    (local-set-key (kbd "q") #'delete-window)
-;    (local-set-key (kbd "i") #')
-;    (local-set-key (kbd "g") #')
-))
+;; (defun gikopoi-init-user-list-buffer ()
+;;   (setq gikopoi-user-list-buffer (generate-new-buffer "*User List*"))
+;;   (with-current-buffer gikopoi-user-list-buffer
+;;     (setq buffer-read-only t)
+;;     (use-local-map (make-sparse-keymap))
+;;     (local-set-key (kbd "q") #'delete-window)
+;; ;    (local-set-key (kbd "i") #')
+;; ;    (local-set-key (kbd "g") #')
+;; ))
 
-(defun gikopoi-list-users ()
-  (interactive)
-  nil)
+;; (defun gikopoi-list-users ()
+;;   (interactive)
+;;   nil)
 
 
 

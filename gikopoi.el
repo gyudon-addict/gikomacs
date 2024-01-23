@@ -91,9 +91,9 @@
   (let ((url-request-method "POST")
 	(url-request-extra-headers '(("Content-Type" . "application/json")))
 	(url-request-data (encode-coding-string
-			     (json-encode
-			       (cl-pairlis '(userName characterId areaId roomId password)
-				           (list name character area room password))) 'utf-8)))
+			    (json-encode
+			      (cl-pairlis '(userName characterId areaId roomId password)
+				          (list name character area room password))) 'utf-8)))
     (gikopoi-url-json-contents (gikopoi-api-url api server 'login))))
 
 (defun gikopoi-request-room-state (api server area room &optional pid)
@@ -190,6 +190,7 @@
   (display-buffer gikopoi-message-buffer))
 
 (defmacro gikopoi-with-message-buffer (&rest body)
+  (declare (indent defun))
   `(with-current-buffer gikopoi-message-buffer
      (goto-char (point-max))
      (let ((buffer-read-only nil))
@@ -214,6 +215,7 @@
       (apply fn (cl-coerce (substring event 1) 'list)))))
 
 (defmacro gikopoi-defevent (name &rest body)
+  (declare (indent defun))
   (let ((fn `(lambda ,(car body) ,@(cdr body)))
 	(event `(assoc ',name gikopoi-event-alist #'string-equal)))
     `(if (null ,event)
@@ -320,10 +322,14 @@ Won't print any messages or run any hooks on actions from the user.")
 
 
 (gikopoi-defevent server-user-active (id)
-  (gikopoi-user-set-activep id t))
+  (gikopoi-user-set-activep id t)
+  (gikopoi-with-message-buffer
+    (insert (format "* %s is active\n" (gikopoi-user-name id)))))
 
 (gikopoi-defevent server-user-inactive (id)
-  (gikopoi-user-set-activep id nil))
+  (gikopoi-user-set-activep id nil)
+  (gikopoi-with-message-buffer
+    (insert (format "* %s is away\n" (gikopoi-user-name id)))))
 
 
 (gikopoi-defevent server-update-current-room-state (state-alist)
@@ -346,30 +352,27 @@ later to use the local names instead.")
   (seq-doseq (room-alist room-alist-vector)
     (let-alist room-alist
       (let ((entry (assoc .id gikopoi-room-list))
-	    (contents (vector .id .group .userCount .streamers)))
+	    (contents (vector .id .group (number-to-string .userCount) (string-join .streamers " "))))
 	(if (null entry)
 	    (push (list .id contents) (cdr gikopoi-room-list))
 	  (setcar (cdr entry) contents))))))
 
 
-;; (defvar gikopoi-room-list-buffer nil)
+(defvar gikopoi-room-list-buffer nil)
 
-;; (defun gikopoi-init-room-list-buffer ()
-;;   (setq gikopoi-room-list-buffer (generate-new-buffer "*Room List*"))
-;;   (with-current-buffer gikopoi-room-list-buffer
-;;     (tabulated-list-mode)
-;;     (setq tabulated-list-format
-;;       [("Room Name" 18 t)
-;;        ("Group" 10 t)
-;;        ("Users" 3 >)
-;;        ("Streamers" 0 nil)])
-;;     (setq tabulated-list-entries (gikopoi-room-list))
-;;     (add-hook 'tabulated-list-revert-hook #'gikopoi-room-list)))
-
-;; (defun gikopoi-update-room-list-buffer ()
-;;   (with-current-buffer gikopoi-room-list-buffer
-;;     (tabulated-list-print)))
-
+(defun gikopoi-init-room-list-buffer ()
+  (setq gikopoi-room-list-buffer (generate-new-buffer "*Room List*"))
+  (with-current-buffer gikopoi-room-list-buffer
+    (tabulated-list-mode)
+    (setq tabulated-list-format
+      [("Room Name" 18 t)
+       ("Group" 10 t)
+       ("Users" 5 t)
+       ("Streamers" 0 nil)])
+    (tabulated-list-init-header)
+    (add-hook 'tabulated-list-revert-hook
+	      (lambda ()
+		(setq tabulated-list-entries (gikopoi-room-list))) nil t)))
 
 
 (defvar gikopoi-user-alist nil
@@ -409,22 +412,38 @@ This will be changed later to use the local name.")
     (assoc-delete-all id gikopoi-user-alist)))
 
 
-;; (defvar gikopoi-user-list-buffer nil)
+(defvar gikopoi-user-list-buffer nil)
 
-;; (defun gikopoi-init-user-list-buffer ()
-;;   (setq gikopoi-user-list-buffer (generate-new-buffer "*User List*"))
-;;   (with-current-buffer gikopoi-user-list-buffer
-;;     (setq buffer-read-only t)
-;;     (use-local-map (make-sparse-keymap))
-;;     (local-set-key (kbd "q") #'delete-window)
-;; ;    (local-set-key (kbd "i") #')
-;; ;    (local-set-key (kbd "g") #')
-;; ))
+(defun gikopoi-init-user-list-buffer ()
+  (setq gikopoi-user-list-buffer (generate-new-buffer "*User List*"))
+  (with-current-buffer gikopoi-user-list-buffer
+    (tabulated-list-mode)
+    (setq tabulated-list-format
+      [("Users" 24 t)
+       ("Status" 6 nil)])
+    (tabulated-list-init-header)
+    (add-hook 'tabulated-list-revert-hook
+	      (lambda ()
+		(setq tabulated-list-entries (gikopoi-user-list))) nil t)))
 
-;; (defun gikopoi-list-users ()
-;;   (interactive)
-;;   nil)
+(defun gikopoi-user-list ()
+  "Returns the list of current users in the form ((ID [NAME STATUS]) ...)"
+  (mapcar (lambda (user)
+	    `(,(car user) [,(cadr user)
+			   ,(string-join
+			      (list (if (caddr user) "" "Zz ")
+				    (if (cadddr user) "I" "")))]))
+	  gikopoi-user-alist))
 
+(defun gikopoi-list-users ()
+  "Populates and opens the user list buffer."
+  (interactive)
+  (unless (buffer-live-p gikopoi-user-list-buffer)
+    (gikopoi-init-user-list-buffer))
+  (with-current-buffer gikopoi-user-list-buffer
+    (tabulated-list-revert))
+  (unless (eq (current-buffer) gikopoi-user-list-buffer)
+    (display-buffer gikopoi-user-list-buffer)))
 
 
 (defun gikopoi-update-room-state (state-alist)
@@ -445,6 +464,7 @@ This will be changed later to use the local name.")
 
 (defun gikopoi-room-list ()
   (gikopoi-socket-emit '(user-room-list))
+  (sleep-for 0 75)
   (cdr gikopoi-room-list))
 
 (defun gikopoi-change-room (room &optional door)
@@ -482,12 +502,15 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
   (interactive) (gikopoi-send ""))
 
 
-;; (defun gikopoi-list-rooms ()
-;;   (interactive)
-;;   (unless (buffer-live-p gikopoi-room-list-buffer)
-;;     (gikopoi-init-room-list-buffer))
-;;   (gikopoi-update-room-list-buffer)
-;;   (display-buffer gikopoi-room-list-buffer))
+(defun gikopoi-list-rooms ()
+  "Populates and opens the room list buffer."
+  (interactive)
+  (unless (buffer-live-p gikopoi-room-list-buffer)
+    (gikopoi-init-room-list-buffer))
+  (with-current-buffer gikopoi-room-list-buffer
+    (tabulated-list-revert))
+  (unless (eq (current-buffer) gikopoi-room-list-buffer)
+    (display-buffer gikopoi-room-list-buffer)))
 
 
 (defun gikopoi-move-left (times)
@@ -533,10 +556,18 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
     (define-key map (kbd "SPC") #'gikopoi-send-message)
     (define-key map (kbd "RET") #'gikopoi-send-blank)
 
+    (define-key map (kbd "C-r") #'gikopoi-list-rooms)
+    (define-key map (kbd "C-l") #'gikopoi-list-users)
+
     (define-key map (kbd "<left>")  #'gikopoi-move-left)
     (define-key map (kbd "<right>") #'gikopoi-move-right)
     (define-key map (kbd "<up>")    #'gikopoi-move-up)
     (define-key map (kbd "<down>")  #'gikopoi-move-down)
+
+    (define-key map (kbd "<C-left>")  #'gikopoi-bubble-left)
+    (define-key map (kbd "<C-right>") #'gikopoi-bubble-right)
+    (define-key map (kbd "<C-up>")    #'gikopoi-bubble-up)
+    (define-key map (kbd "<C-down>")  #'gikopoi-bubble-down)
 
     (define-key map (kbd "ESC ESC") (lambda ()
 				      (interactive)
@@ -561,9 +592,11 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
 
 
 (defcustom gikopoi-servers
-  '(("gikopoipoi.net" "for" "gen")
-    ("play.gikopoi.com" "for" "vip")
-    ("gikopoi.hu" "int" "hun")) "")
+  '(("play.gikopoi.com" "for" "gen" "vip")
+;   ("gikopoipoi.net" "for" "gen")
+    ("gikopoi.hu" "int" "hun"))
+  "List of connectable Gikopoipoi servers and their areas.
+Form: ((SERVER AREAS ...) ...)")
 
 
 (defun gikopoi-read-arglist ()

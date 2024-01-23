@@ -1,0 +1,10 @@
+#rula and #list buffers with selectable room change, user status, ignore
+autoquote function on message buffer
+indicator on mode-line for unread messages and mentions
+complete rooms and characters on M-x gikopoi command
+get language data from server, use local names depending on your locale
+find out why make-network-process hangs on gikopoipoi.net
+smooth, buffered movement with configurable delay
+toolkit for interactive bots
+display mode using emacs' native svg graphics features
+elisp implementation of the gikopoipoi server

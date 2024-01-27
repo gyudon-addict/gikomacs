@@ -1,10 +1,25 @@
-#rula and #list buffers with selectable room change, user status, ignore
-autoquote function on message buffer
+#rula and #list buffers with selectable room change, user status, ignore - done
+username completion in minibuffer - done
+use language set depending on your locale - done
+autoquote function on message buffer - done
+
+
 indicator on mode-line for unread messages and mentions
+timestamps for messages
+
+make the message buffer a tabulated list buffer
 complete rooms and characters on M-x gikopoi command
-get language data from server, use local names depending on your locale
-find out why make-network-process hangs on gikopoipoi.net
+
+find out why make-network-process hangs on gikopoipoi.net - who knows?
 smooth, buffered movement with configurable delay
 toolkit for interactive bots
 display mode using emacs' native svg graphics features
+
+
 elisp implementation of the gikopoipoi server
+- serve language data as a payload or over http
+- communicate directly with sexps instead of converting to json
+- let users change character, name
+- forced anonymous mode
+- "classic gikopoi" mode
+

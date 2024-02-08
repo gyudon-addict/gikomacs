@@ -304,10 +304,12 @@ For use with advice macros like 'add-function'."
 
 (defun gikopoi-insert-user (user-alist)
   (let-alist user-alist
-    (gikopoi-add-user .id .name (eq .isInactive :json-false))
-    (gikopoi-msg-wrapper .id (lambda (name)
-			       (gikopoi-insert-message name .lastRoomMessage))
-			 .lastRoomMessage gikopoi-reconnecting-p)))
+    (let ((id .id) (message .lastRoomMessage))
+      (gikopoi-add-user id .name nil)
+      (gikopoi-msg-wrapper id (lambda (name)
+				 (gikopoi-insert-message name message))
+			   message gikopoi-reconnecting-p)
+      (gikopoi-user-set-activep id (eq .isInactive json-false)))))
 
 (gikopoi-defevent server-user-left-room (id)
   (gikopoi-msg-wrapper id (lambda (name)

@@ -207,9 +207,8 @@
        ,@body)))
 
 (defun gikopoi-insert-message (name message)
-  (gikopoi-with-message-buffer
-    (dolist (msg (split-string message "\n"))
-      (insert (format "%s: %s\n" name msg)))))
+  (dolist (msg (split-string message "\n"))
+    (insert (format "%s: %s\n" name msg))))
 
 
 ;; Server/Messaging
@@ -242,10 +241,10 @@ For use with advice macros like 'add-function'."
 (defvar gikopoi-mention-count 0)
 (defvar gikopoi-mentions nil)
 
-(defun gikopoi-msg-wrapper (id function &optional message)
+(defun gikopoi-msg-wrapper (id function &optional message predicate)
   (gikopoi-user-set-activep id t)
   (unless (or (gikopoi-user-ignoredp id)
-	      (string-empty-p message))
+	      (string-empty-p message) predicate)
     (let ((name (gikopoi-user-name id)))
       (if (or (with-current-buffer gikopoi-message-buffer
 		(not gikopoi-notif-mode))
@@ -253,11 +252,12 @@ For use with advice macros like 'add-function'."
 	  (setq gikopoi-unread-count 0 gikopoi-mention-count 0
 		gikopoi-mentions nil)
 	(cl-incf gikopoi-unread-count)
-	(when (string-match gikopoi-mention-regexp message)
+	(when (and message (string-match gikopoi-mention-regexp message))
 	  (cl-incf gikopoi-mention-count)
 	  (add-to-list 'gikopoi-mentions name))
 	(force-mode-line-update))
-      (funcall function name))))
+      (gikopoi-with-message-buffer
+	(funcall function name)))))
 
 (gikopoi-defevent server-msg (id message)
   (gikopoi-msg-wrapper id (lambda (name)
@@ -265,15 +265,13 @@ For use with advice macros like 'add-function'."
 
 (gikopoi-defevent server-roleplay (id message)
   (gikopoi-msg-wrapper id (lambda (name)
-			    (gikopoi-with-message-buffer
-			      (insert (format "* %s %s\n" name message)))) message))
+			    (insert (format "* %s %s\n" name message))) message))
 
 (gikopoi-defevent server-roll-die (id base sum arga &optional argb)
   (gikopoi-msg-wrapper id (lambda (name)
 			    (let ((times (or argb arga)))
-			      (gikopoi-with-message-buffer
-				(insert (format "* %s rolled %s x d%s and got %s!\n"
-						name times base sum)))))))
+			      (insert (format "* %s rolled %s x d%s and got %s!\n"
+					      name times base sum))))))
 
 
 (gikopoi-defevent server-system-message (code message)
@@ -299,27 +297,21 @@ For use with advice macros like 'add-function'."
 
 
 (gikopoi-defevent server-user-joined-room (user-alist)
-  (gikopoi-insert-user user-alist)
   (let-alist user-alist
-    (gikopoi-with-message-buffer
-      (insert (format "* %s has entered the room\n" (gikopoi-user-name .id))))))
+    (gikopoi-insert-user user-alist)
+    (gikopoi-msg-wrapper .id (lambda (name)
+			       (insert (format "* %s has entered the room\n" name))))))
 
 (defun gikopoi-insert-user (user-alist)
   (let-alist user-alist
     (gikopoi-add-user .id .name (eq .isInactive :json-false))
-    (unless (or gikopoi-reconnecting-p
-		(string-empty-p .lastRoomMessage))
-      (gikopoi-insert-message (gikopoi-user-name .id) .lastRoomMessage))))
-
+    (gikopoi-msg-wrapper .id (lambda (name)
+			       (gikopoi-insert-message name .lastRoomMessage))
+			 .lastRoomMessage gikopoi-reconnecting-p)))
 
 (gikopoi-defevent server-user-left-room (id)
-  (unless (gikopoi-user-ignoredp id)
-    (let ((name (gikopoi-user-name id)))
-      (unless (null name)
-	;; For some reason, the Gikopoipoi server occasionally sends these events about some user
-	;; that doesn't exist. The right thing in this case seems to be to just ignore them.
-	(gikopoi-with-message-buffer
-	  (insert (format "* %s has left the room\n" (gikopoi-user-name id)))))))
+  (gikopoi-msg-wrapper id (lambda (name)
+			    (insert (format "* %s has left the room\n" name))))
   (gikopoi-rem-user id))
 
 (gikopoi-defevent server-user-active (id)
@@ -327,9 +319,9 @@ For use with advice macros like 'add-function'."
 
 (gikopoi-defevent server-user-inactive (id)
   (gikopoi-user-set-activep id nil)
-  (unless (gikopoi-user-ignoredp id)
-    (gikopoi-with-message-buffer
-      (insert (format "* %s is away\n" (gikopoi-user-name id))))))
+  (gikopoi-msg-wrapper id (lambda (name)
+			    (insert (format "* %s is away\n" name)))))
+
 
 (gikopoi-defevent server-update-current-room-state (state)
   (setq gikopoi-user-alist nil)

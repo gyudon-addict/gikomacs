@@ -241,8 +241,8 @@ For use with advice macros like 'add-function'."
 (defvar gikopoi-mention-count 0)
 (defvar gikopoi-mentions nil)
 
-(defun gikopoi-msg-wrapper (id function &optional message predicate)
-  (gikopoi-user-set-activep id t)
+(defun gikopoi-msg-wrapper (id function &optional active message predicate)
+  (when active (gikopoi-user-set-activep id t))
   (unless (or (gikopoi-user-ignoredp id)
 	      (string-empty-p message) predicate)
     (let ((name (gikopoi-user-name id)))
@@ -261,17 +261,17 @@ For use with advice macros like 'add-function'."
 
 (gikopoi-defevent server-msg (id message)
   (gikopoi-msg-wrapper id (lambda (name)
-			    (gikopoi-insert-message name message)) message))
+			    (gikopoi-insert-message name message)) t message))
 
 (gikopoi-defevent server-roleplay (id message)
   (gikopoi-msg-wrapper id (lambda (name)
-			    (insert (format "* %s %s\n" name message))) message))
+			    (insert (format "* %s %s\n" name message))) t message))
 
 (gikopoi-defevent server-roll-die (id base sum arga &optional argb)
   (gikopoi-msg-wrapper id (lambda (name)
 			    (let ((times (or argb arga)))
 			      (insert (format "* %s rolled %s x d%s and got %s!\n"
-					      name times base sum))))))
+					      name times base sum)))) t))
 
 
 (gikopoi-defevent server-system-message (code message)
@@ -305,11 +305,10 @@ For use with advice macros like 'add-function'."
 (defun gikopoi-insert-user (user-alist)
   (let-alist user-alist
     (let ((id .id) (message .lastRoomMessage))
-      (gikopoi-add-user id .name nil)
+      (gikopoi-add-user id .name (eq .isInactive json-false))
       (gikopoi-msg-wrapper id (lambda (name)
 				 (gikopoi-insert-message name message))
-			   message gikopoi-reconnecting-p)
-      (gikopoi-user-set-activep id (eq .isInactive json-false)))))
+			   nil message gikopoi-reconnecting-p))))
 
 (gikopoi-defevent server-user-left-room (id)
   (gikopoi-msg-wrapper id (lambda (name)

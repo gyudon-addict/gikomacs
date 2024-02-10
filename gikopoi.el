@@ -241,10 +241,10 @@ For use with advice macros like 'add-function'."
 (defvar gikopoi-mention-count 0)
 (defvar gikopoi-mentions nil)
 
-(defun gikopoi-msg-wrapper (id function &optional active message predicate)
+(defun gikopoi-msg-wrapper (id function &optional active message)
   (when active (gikopoi-user-set-activep id t))
   (unless (or (gikopoi-user-ignoredp id)
-	      (string-empty-p message) predicate)
+	      (string-empty-p message))
     (let ((name (gikopoi-user-name id)))
       (if (or (with-current-buffer gikopoi-message-buffer
 		(not gikopoi-notif-mode))
@@ -275,8 +275,9 @@ For use with advice macros like 'add-function'."
 
 
 (gikopoi-defevent server-system-message (code message)
+  (message "SYSTEM: %s" code)
   (gikopoi-with-message-buffer
-    (insert (format "* SYSTEM: %s %s\n" code message))))
+    (insert (format "* SYSTEM: %s\n" message))))
 
 (gikopoi-defevent server-move (alist)
 ; ((userId . id) (x . n) (y . n) (direction . dir)
@@ -306,13 +307,18 @@ For use with advice macros like 'add-function'."
   (let-alist user-alist
     (let ((id .id) (message .lastRoomMessage))
       (gikopoi-add-user id .name (eq .isInactive json-false))
-      (gikopoi-msg-wrapper id (lambda (name)
-				 (gikopoi-insert-message name message))
-			   nil message gikopoi-reconnecting-p))))
+      (unless gikopoi-reconnecting-p
+	(gikopoi-msg-wrapper id (lambda (name)
+				  (gikopoi-insert-message name message))
+			     nil message)))))
 
 (gikopoi-defevent server-user-left-room (id)
   (gikopoi-msg-wrapper id (lambda (name)
-			    (insert (format "* %s has left the room\n" name))))
+			    (unless (null name)
+			      ;; For some reason, the Gikopoipoi server occasionally sends these
+			      ;; events about some user that doesn't exist. The right thing in
+			      ;; this case seems to be to just ignore them.
+			      (insert (format "* %s has left the room\n" name)))))
   (gikopoi-rem-user id))
 
 (gikopoi-defevent server-user-active (id)

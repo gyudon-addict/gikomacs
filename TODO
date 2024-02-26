@@ -1,25 +1,50 @@
-what's done
+what's new in 693.4
 
-detect disconnects
-attempt reconnection to server when disconnected
-print timestamps at regular intervals
-indicator on mode-line for unread messages and mentions
-"nil has left the room" is now ignored
-general code improvements
+highlighted URLs using goto-address-mode
+recursive minibuffer and minibuffer selection in message buffer
+the message buffer window now scrolls properly
+defcustoms are now typed
+fixes for byte-compilation
+some other stuff probably
 
-what's not done
+what's next
 
-highlight URLs
-complete rooms and characters on 'gikopoi' command
-display mode
 
-what's to be done
+gikopoi-gfx feature that displays the room and characters like proper gikopoi
+- using emacs' svg and image features this will be possible, but likely slow
+- development is ongoing
 
-implement the gikopoipoi server
-- serve sexps instead of json
-- server-name-changed event
-- forced anonymous
-- area and room default values
-- lossage prevention measures
-- IRC backend
+gikopoi-sfx feature to play sounds for join, mention, message, etc.
 
+gikopoi-streams feature that lets you view and create audio and video streams
+- there was a discussion on the emacs-devel mailing list for inclusion of a
+  patch for a GStreamer xwidget, but it appears to have gotten nowhere and
+  emacs usually isn't built with xwidgets anyway
+
+- the most plausible solution seems to be some hack involving the gst-launch
+  command to spawn GStreamer pipelines, which I could make emacs processes out
+  of no problem; a possible downside may be that video streams won't be contained
+  in an emacs window
+
+gikopoi-tts feature that reads aloud messages with a TTS engine
+- the question here is what TTS lib to actually use. Emacspeak is a complex
+  interface for a speech environment which would probably do the job quite well,
+  but is also likely overkill, and isn't distributed in any emacs package repos
+  (although it does come with slackware and is in a lot of distro repos).
+  I also haven't figured out how to set it up.
+
+gikopoi-server feature that reimplements the gikopoi2 server in elisp
+- how some of the more bespoke features like streams ought to be implemented is
+  up for speculation. I consider it might be done simply as a process for a WebRTC
+  server like janus or something, which is the server gikopoi2 uses, I think.
+
+- there was the idea of building the chat on top of an IRC server, but it turns out
+  that there are zero elisp IRC servers to be found!
+
+- unlike gikopoi2, i'd like to encourage trying to interface with alternate clients;
+  this doesn't mean the protocol is likely to be compatible, but more likely to be
+  at least stable. A project I'd like to support somehow is to rip the client code
+  from the gikopoi2 distribution and package it as it's own separate application.
+
+
+some fun things like a mode for playing chess

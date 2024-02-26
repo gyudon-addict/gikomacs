@@ -5,7 +5,7 @@
 ;; Author: gyudon_addict◆hawaiiZtQ6
 ;; Homepage: https://github.com/gyudon-addict/gikomacs
 ;; Keywords: games, chat, client
-;; Version: 693.3
+;; Version: 693.4
 ;; Package-Requires: ((websocket "1.15"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -49,10 +49,108 @@
 
 (require 'seq)
 (require 'url)
+(require 'url-http)
 (require 'json)
 (require 'cl-lib)
 (require 'thingatpt)
 (require 'websocket)
+
+
+(defgroup gikopoi nil
+  "Gikopoipoi client for Emacs."
+  :group 'applications)
+
+
+(defcustom gikopoi-default-server nil
+  "The server to connect to without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-default-port 8085
+  "The port on the server to connect to."
+  :group 'gikopoi
+  :type 'natnum)
+
+(defcustom gikopoi-default-name nil
+  "The name to use without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-default-character nil
+  "The character to use without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-default-area nil
+  "The area to join without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-default-room nil
+  "The room to join without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-default-password nil
+  "The password to enter without prompting, or nil."
+  :group 'gikopoi
+  :type '(choice (const nil) string))
+
+(defcustom gikopoi-prompt-password-p nil
+  "Whether or not to prompt for a password when joining a Gikopoi server."
+  :group 'gikopoi
+  :type 'boolean)
+
+
+(defcustom gikopoi-servers
+  '(("play.gikopoi.com" "for" "gen" "vip")
+    ("gikopoi.hu" "int" "hun"))
+  "List of connectable Gikopoipoi servers and their areas."
+  :group 'gikopoi
+  :type '(repeat (cons string (repeat string))))
+
+
+(defcustom gikopoi-preferred-language current-iso639-language
+  "The preferred language of the client."
+  :group 'gikopoi
+  :type 'symbol)
+
+(defcustom gikopoi-autoquote-format "> %s < "
+  "The format string for 'gikopoi-autoquote'."
+  :group 'gikopoi
+  :type 'string)
+
+
+(defcustom gikopoi-mention-regexp regexp-unmatchable
+  "If a message you recieve matches this regexp, the name of the sender will be added to
+'gikopoi-mentions' and 'gikopoi-mention-count' will be incremented."
+  :group 'gikopoi
+  :type 'regexp)
+
+(defcustom gikopoi-notif-position '(mode-line-modes . nil)
+  "Describes how 'gikopoi-notif' shows up in the mode line.
+It's a cons whose car is a mode-line variable and cdr is a boolean.
+'gikopoi-notif' is prepended to the car's symbol-value if the cdr is nil, or appended otherwise."
+  :group 'gikopoi
+  :type '(cons variable boolean))
+
+
+(defcustom gikopoi-timestamp-interval 3600
+  "The interval in seconds to print timestamps into the message buffer
+or nil to not print them at all."
+  :group 'gikopoi
+  :type '(choice (const nil) number))
+
+(defcustom gikopoi-time-format "* %a %b %d %Y %T GMT%z (%Z)\n"
+  "A 'format-time-string' string to format timestamps with."
+  :group 'gikopoi
+  :type 'string)
+
+
+(defcustom gikopoi-display-graphics-p t
+  "Whether to require the 'gikopoi-gfx' feature if it's available upon the 'gikopoi' command."
+  :group 'gikopoi
+  :type 'boolean)
 
 
 ;; API
@@ -89,17 +187,20 @@
 
 
 (defvar gikopoi-socket nil)
+(defvar gikopoi-socket-last-ping nil)
 
-(defun gikopoi-socket-open (server pid &optional port)
+(defun gikopoi-socket-open (server port pid)
   (setq gikopoi-socket
-    (websocket-open (format "ws://%s:%d/socket.io/?EIO=4&transport=websocket" server (or port 8085))
+    (websocket-open (format "ws://%s:%d/socket.io/?EIO=4&transport=websocket" server port)
 		    :custom-header-alist `((private-user-id . ,pid) (perMessageDeflate . false))
 		    :on-open (lambda (sock) (websocket-send-text sock "40"))
 		    :on-close (lambda (sock) (websocket-send-text sock "41"))
 		    :on-message #'gikopoi-socket-message-handler))
-  (setf (websocket-client-data gikopoi-socket) (list server pid port))
+  (setf (websocket-client-data gikopoi-socket) (list server port pid))
   (setq gikopoi-socket-last-ping (current-time))
   gikopoi-socket)
+
+(defvar gikopoi-socket-ping-timer nil)
 
 (defun gikopoi-socket-close ()
   (websocket-close gikopoi-socket)
@@ -108,8 +209,6 @@
 (defvar gikopoi-socket-interval nil)
 (defvar gikopoi-socket-tolerance 1)
 (defvar gikopoi-socket-timeout nil)
-(defvar gikopoi-socket-last-ping nil)
-(defvar gikopoi-socket-ping-timer nil)
 
 (defun gikopoi-socket-attempt-reconnect ()
   (with-timeout (gikopoi-socket-timeout
@@ -180,7 +279,7 @@
  	(string-join (list (format-time-string "%a %b %d %Y %T GMT%z (%Z)") .userId
  			   (url-http-user-agent-string)) " "))
       (setq gikopoi-reconnecting-p nil)
-      (gikopoi-socket-open server .privateUserId))))
+      (gikopoi-socket-open server gikopoi-default-port .privateUserId))))
 
 
 ;; Message Buffer
@@ -192,6 +291,7 @@
   (setq gikopoi-message-buffer (generate-new-buffer server))
   (with-current-buffer gikopoi-message-buffer
     (gikopoi-mode)
+    (goto-address-mode)
     (setq buffer-read-only t))
   (display-buffer gikopoi-message-buffer))
 
@@ -202,6 +302,8 @@
 (defmacro gikopoi-with-message-buffer (&rest body)
   (declare (indent defun))
   `(with-current-buffer gikopoi-message-buffer
+     (when (window-live-p (get-buffer-window))
+       (set-window-point (get-buffer-window) (point-max)))
      (goto-char (point-max))
      (let ((buffer-read-only nil))
        ,@body)))
@@ -233,13 +335,11 @@ For use with advice macros like 'add-function'."
       (apply fn args))))
 
 
-(defcustom gikopoi-mention-regexp ""
-  "If a message you recieve matches this regexp, the name of the sender will be added to
-'gikopoi-mentions' and 'gikopoi-mention-count' will be incremented.")
-
 (defvar gikopoi-unread-count 0)
 (defvar gikopoi-mention-count 0)
 (defvar gikopoi-mentions nil)
+
+(defvar gikopoi-notif-mode)
 
 (defun gikopoi-msg-wrapper (id function &optional active message)
   (when active (gikopoi-user-set-activep id t))
@@ -305,12 +405,11 @@ For use with advice macros like 'add-function'."
 
 (defun gikopoi-insert-user (user-alist)
   (let-alist user-alist
-    (let ((id .id) (message .lastRoomMessage))
-      (gikopoi-add-user id .name (eq .isInactive json-false))
-      (unless gikopoi-reconnecting-p
-	(gikopoi-msg-wrapper id (lambda (name)
-				  (gikopoi-insert-message name message))
-			     nil message)))))
+    (gikopoi-add-user .id .name (eq .isInactive json-false))
+    (unless gikopoi-reconnecting-p
+      (gikopoi-msg-wrapper .id (lambda (name)
+				 (gikopoi-insert-message name .lastRoomMessage))
+			   nil .lastRoomMessage))))
 
 (gikopoi-defevent server-user-left-room (id)
   (gikopoi-msg-wrapper id (lambda (name)
@@ -330,14 +429,6 @@ For use with advice macros like 'add-function'."
 			    (insert (format "* %s is away\n" name)))))
 
 
-(gikopoi-defevent server-update-current-room-state (state)
-  (setq gikopoi-user-alist nil)
-  (setcdr gikopoi-user-list nil)
-  (let-alist state
-    (seq-doseq (user-alist .connectedUsers)
-      (gikopoi-insert-user user-alist))))
-
-
 (gikopoi-defevent server-room-list (room-alist-vector)
   (gikopoi-update-room-list room-alist-vector))
 
@@ -354,14 +445,16 @@ Form: (nil . ((ID [NAME AREA USER-COUNT STREAMERS]) ...))")
   (sleep-for 0.1) ; wait for it to finish
   (cdr gikopoi-room-list))
 
+(defvar gikopoi-lang-alist)
+
 (defun gikopoi-update-room-list (room-alist-vector)
   (seq-doseq (room-alist room-alist-vector)
     (let-alist room-alist
-      (let* ((id .id)
-	     (group .group)
-	     (entry (assoc id gikopoi-room-list))
-	     (count (number-to-string .userCount))
-	     (streams (string-join .streamers " ")))
+      (let ((id .id)
+	    (group .group)
+	    (entry (assoc .id gikopoi-room-list))
+	    (count (number-to-string .userCount))
+	    (streams (string-join .streamers " ")))
 	(let-alist gikopoi-lang-alist
 	  (let ((name (cdr (assoc id .room #'string-equal)))
 		(area (cdr (assoc group .area #'string-equal))))
@@ -421,6 +514,16 @@ Form: (nil . ((ID [NAME AREA USER-COUNT STREAMERS]) ...))")
   "The name to display for users who haven't entered a name.")
 
 (defvar gikopoi-user-list (list gikopoi-empty-name))
+
+(defvar gikopoi-current-room nil)
+
+(gikopoi-defevent server-update-current-room-state (state)
+  (setq gikopoi-user-alist nil)
+  (setcdr gikopoi-user-list nil)
+  (let-alist state
+    (setq gikopoi-current-room .currentRoom)
+    (seq-doseq (user-alist .connectedUsers)
+      (gikopoi-insert-user user-alist))))
 
 (defun gikopoi-user (id &optional byname)
   (cl-find id gikopoi-user-alist :test #'equal :key (if byname #'cadr #'car)))
@@ -546,18 +649,29 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
 (cl-eval-when (load eval)
   (setq gikopoi-default-directory (file-name-directory load-file-name)))
 
+(defvar gikopoi-site-directory nil)
 
-(defcustom gikopoi-preferred-language current-iso639-language
-  "The preferred language of the client.")
+(defun gikopoi-init-site-directory (server &rest _args)
+  (let* ((sitedir (file-name-as-directory
+		   (concat gikopoi-default-directory "sites")))
+	 (nosearch (concat sitedir ".nosearch")))
+    (unless (file-exists-p nosearch)
+      (make-empty-file nosearch t))
+    (setq sitedir (file-name-as-directory (concat sitedir server)))
+    (make-directory (concat sitedir "rooms") t)
+    (setq gikopoi-site-directory sitedir)))
+
+(defvar gikopoi-lang-directory nil)
 
 (defvar gikopoi-lang-alist nil
   "A large alist of lingual information.")
 
 (defun gikopoi-init-lang-alist (&rest _args)
+  (setq gikopoi-lang-directory
+    (file-name-as-directory (concat gikopoi-default-directory "langs")))
   (with-temp-buffer
-    (insert-file-contents (format "%slangs/%s"
-				  gikopoi-default-directory
-				  gikopoi-preferred-language))
+    (insert-file-contents (concat gikopoi-lang-directory
+				  (symbol-name gikopoi-preferred-language)))
     (setq gikopoi-lang-alist (read (current-buffer))))
   (let-alist gikopoi-lang-alist
     (setq gikopoi-empty-name (or .default_user_name "Anonymous"))
@@ -579,11 +693,18 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
  
 (defun gikopoi-send-message ()
   (interactive)
-  (let (message)
+  (let ((enable-recursive-minibuffers t)
+	message)
     (while (not (string-empty-p
 		  (setq message
 		    (read-from-minibuffer "" nil gikopoi-minibuffer-map))))
       (gikopoi-send message))))
+
+(defun gikopoi-open-minibuffer ()
+  (interactive)
+  (if (active-minibuffer-window)
+      (select-window (active-minibuffer-window))
+    (call-interactively #'gikopoi-send-message)))
 
 (defun gikopoi-send-blank ()
   (interactive) (gikopoi-send ""))
@@ -600,24 +721,24 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
     (display-buffer gikopoi-room-list-buffer)))
 
 
-(defun gikopoi-move-left (times)
+(defun gikopoi-move-left (n)
   (interactive "p")
-  (dotimes (i times)
+  (dotimes (_i n)
     (gikopoi-move "left")))
 
-(defun gikopoi-move-right (times)
+(defun gikopoi-move-right (n)
   (interactive "p")
-  (dotimes (i times)
+  (dotimes (_i n)
     (gikopoi-move "right")))
 
-(defun gikopoi-move-up (times)
+(defun gikopoi-move-up (n)
   (interactive "p")
-  (dotimes (i times)
+  (dotimes (_i n)
     (gikopoi-move "up")))
 
-(defun gikopoi-move-down (times)
+(defun gikopoi-move-down (n)
   (interactive "p")
-  (dotimes (i times)
+  (dotimes (_i n)
     (gikopoi-move "down")))
 
 
@@ -638,17 +759,19 @@ If ENDLN is non-nil, sends an empty string to pop the message bubble."
   (gikopoi-bubble-position "down"))
 
 
-(defcustom gikopoi-autoquote-format "> %s < "
-  "The format string for gikopoi-autoquote.")
-
 (defun gikopoi-autoquote ()
-  "Opens a message prompt with a quote of the message at point inserted,
+  "Opens a message prompt with a quote of the message at point inserted
 specified by 'gikopoi-autoquote-format'."
   (interactive)
   (let ((quote (buffer-substring (point) (line-end-position))))
-    (minibuffer-with-setup-hook
-	(lambda () (insert (format gikopoi-autoquote-format quote)))
-      (call-interactively #'gikopoi-send-message))))
+    (if (null (active-minibuffer-window))
+	(minibuffer-with-setup-hook
+	  (lambda ()
+	    (insert (format gikopoi-autoquote-format quote)))
+	  (call-interactively #'gikopoi-send-message))
+      (select-window (active-minibuffer-window))
+      (erase-buffer)
+      (insert (format gikopoi-autoquote-format quote)))))
 
 
 (defvar gikopoi-quit-functions
@@ -666,7 +789,7 @@ specified by 'gikopoi-autoquote-format'."
 
 (defvar gikopoi-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "SPC") #'gikopoi-send-message)
+    (define-key map (kbd "SPC") #'gikopoi-open-minibuffer)
     (define-key map (kbd "RET") #'gikopoi-send-blank)
 
     (define-key map (kbd "C-r") #'gikopoi-list-rooms)
@@ -695,33 +818,24 @@ specified by 'gikopoi-autoquote-format'."
   :keymap gikopoi-mode-map)
 
 
-
 (defvar gikopoi-notif '(:eval (gikopoi-notif-string)))
-
-(defcustom gikopoi-notif-position '(mode-line-modes . nil)
-  "Describes how 'gikopoi-notif' shows up in the mode line.
-It's either nil, or a cons whose car is a symbol and cdr is a boolean.
-If it's a cons, 'gikopoi-notif' is added to the car's symbol-value:
-at the beginning if the cdr is nil, or at the end if it's not.")
 
 (define-minor-mode gikopoi-notif-mode
   "This mode displays information about unread messages in the mode-line."
   :init-value nil
-  :lighter " Notif"
+  (unless (null gikopoi-notif)
+    (if (not gikopoi-notif-mode)
+	(set (car gikopoi-notif-position)
+	     (delete gikopoi-notif (symbol-value (car gikopoi-notif-position))))
+      (add-to-list (car gikopoi-notif-position)
+		   gikopoi-notif (cdr gikopoi-notif-position)))))
 
-  (if (not gikopoi-notif-mode)
-      (set (car gikopoi-notif-position)
-	   (delete gikopoi-notif (symbol-value (car gikopoi-notif-position))))
-    (add-to-list (car gikopoi-notif-position)
-		 gikopoi-notif (cdr gikopoi-notif-position))))
-
-(defun gikopoi-unique-prefix (string &optional collection)
-  "Return the shortest unique prefix for STRING when compared to COLLECTION,
-or 'gikopoi-user-list' if COLLECTION is unsupplied or nil.
+(cl-defun gikopoi-unique-prefix (string &optional (collection gikopoi-user-list))
+  "Return the shortest unique prefix for STRING when compared to COLLECTION.
+'gikopoi-user-list' is used if COLLECTION is unsupplied.
 It's assumed STRING is a member of COLLECTION, otherwise it doesn't work properly.
 Whether or not this is worth fixing has yet to be determined."
-  (when (null collection)
-    (setq collection gikopoi-user-list))
+
   (let ((i 1) completion prefix)
     (cl-labels ((loop ()
 		  (setq prefix (substring string 0 i)
@@ -735,7 +849,11 @@ Whether or not this is worth fixing has yet to be determined."
 			 (loop)))))
       (loop))))
 
+(defvar gikopoi-current-server nil)
+(defvar gikopoi-current-area nil)
+
 (defun gikopoi-notif-string ()
+  "Returns a string with information on unread messages, to be displayed in the mode-line."
   (format "_%s %s" gikopoi-current-area
 	  (if (zerop gikopoi-unread-count) ""
 	    (format "%d%s" gikopoi-unread-count
@@ -743,15 +861,6 @@ Whether or not this is worth fixing has yet to be determined."
 		      (format ",%d%s " gikopoi-mention-count
 			      (mapcar #'gikopoi-unique-prefix gikopoi-mentions)))))))
 
-
-
-(defcustom gikopoi-timestamp-interval 3600
-  "The interval in seconds to print a timestamp into the message buffer,
-or nil to not print at all.")
-
-(defcustom gikopoi-time-format "* %a %b %d %Y %T GMT%z (%Z)\n"
-  "A 'format-time-string' format string with which to periodically print
-timestamps into the message buffer.")
 
 (defvar gikopoi-timestamp-timer nil)
 
@@ -764,22 +873,6 @@ timestamps into the message buffer.")
 		       (insert (format-time-string gikopoi-time-format))))))
     (add-hook 'gikopoi-quit-functions
 	      (lambda () (cancel-timer gikopoi-timestamp-timer)))))
-
-
-(defcustom gikopoi-default-server nil "")
-(defcustom gikopoi-default-name nil "")
-(defcustom gikopoi-default-character nil "")
-(defcustom gikopoi-default-area nil "")
-(defcustom gikopoi-default-room nil "")
-(defcustom gikopoi-default-password nil "")
-(defcustom gikopoi-prompt-password-p nil "")
-
-
-(defcustom gikopoi-servers
-  '(("play.gikopoi.com" "for" "gen" "vip")
-    ("gikopoi.hu" "int" "hun"))
-  "List of connectable Gikopoipoi servers and their areas.
-Form: ((SERVER AREAS ...) ...)")
 
 
 (defun gikopoi-read-arglist ()
@@ -797,20 +890,14 @@ Form: ((SERVER AREAS ...) ...)")
 		       (when gikopoi-prompt-password-p (read-passwd "Password: ")))))
     (list server area room name character password)))
 
-(defcustom gikopoi-init-functions
+(defvar gikopoi-init-functions
   (list #'gikopoi-init-message-buffer
 	#'gikopoi-init-lang-alist
+	#'gikopoi-init-site-directory
 	#'gikopoi-connect
 	#'gikopoi-print-timestamps)
   "Lists of functions to run when initializing the client, before connecting.
-The functions are called with the elements of 'gikopoi-read-arglist'."
-  :type 'hook)
-
-(defcustom gikopoi-display-graphics-p t
-  "Whether to invoke the 'gikopoi-gfx' feature upon starting Gikopoi.")
-
-(defvar gikopoi-current-server nil)
-(defvar gikopoi-current-area nil)
+The functions are called with the elements of 'gikopoi-read-arglist'.")
 
 (defun gikopoi (server area room name character password)
   (interactive (gikopoi-read-arglist))
